@@ -1,68 +1,128 @@
 # Milestone 3: Unified MLOps Pipeline
 
-This folder merges Airflow orchestration, CI/CD quality gates, and MLflow tracking using the current Iris + RandomForest model.
+This repository combines Airflow orchestration, CI quality gates, and MLflow tracking for an Iris + RandomForest workflow.
 
-## Structure
+## Repository Structure
 
-```
+```text
 milestone3/
-├── .github/
-│   └── workflows/
-│       └── train_and_validate.yml
-├── dags/
-│   └── train_pipeline.py
-├── mlruns/
+├── .github/workflows/train_and_validate.yml
+├── dags/train_pipeline.py
+├── train.py
 ├── model_validation.py
 ├── register_model.py
-├── train.py
 ├── requirements.txt
 └── README.md
 ```
 
-## What each file does
+- `train.py`: trains model, logs params/metrics/model to MLflow, and writes `metrics.json`.
+- `model_validation.py`: validates metrics against thresholds and writes `validation_report.json`.
+- `register_model.py`: registers `runs:/<run_id>/model` into MLflow Model Registry.
+- `dags/train_pipeline.py`: orchestrates `train -> validate -> register`.
+- `.github/workflows/train_and_validate.yml`: CI pipeline with governance gates and artifact publishing.
 
-- `train.py`: Trains the RandomForest model, logs run/model/metrics to MLflow, writes `metrics.json`.
-- `model_validation.py`: Applies threshold checks (`accuracy`, `f1_score`) and exits non-zero on failure.
-- `register_model.py`: Registers the trained run artifact to MLflow Model Registry.
-- `dags/train_pipeline.py`: Airflow DAG that runs `train.py` -> `model_validation.py` -> `register_model.py`.
-- `.github/workflows/train_and_validate.yml`: CI workflow for train + validate + register + artifact upload.
+## DAG Idempotency and Lineage Guarantees
 
-## Local quick start
+- DAG ID: `milestone3_train_pipeline`
+- Execution order is deterministic: `train_model >> validate_model >> register_model`.
+- Registration is hard-gated by validation; if validation exits non-zero, registration does not execute.
+- `max_active_runs=1` prevents overlapping runs of this DAG and reduces race conditions on shared outputs.
+- Run configuration (`dag_run.conf`) is explicitly parsed and cast with defaults, so missing/invalid values fall back safely.
+
+Lineage chain:
+
+1. `train.py` creates MLflow run and writes `run_id` to `metrics.json`.
+2. `model_validation.py` reads the same `metrics.json` and produces `validation_report.json`.
+3. `register_model.py` reads `run_id` from `metrics.json` and registers `runs:/<run_id>/model`.
+
+This guarantees that the registered model version is tied to the exact training run that passed validation.
+
+## CI-Based Model Governance Approach
+
+Governance is enforced in `.github/workflows/train_and_validate.yml`:
+
+1. Install dependencies.
+2. Train model (`train.py`).
+3. Run threshold validation (`model_validation.py --min-accuracy 0.90 --min-f1 0.85`).
+4. Register model only if prior steps succeed.
+5. Upload governance evidence artifacts (`metrics.json`, `validation_report.json`, `mlflow.db`, `mlruns/`).
+
+Key governance behavior:
+
+- Quality gate is codified as CLI thresholds and non-zero exit on failure.
+- Validation failure blocks downstream registration.
+- Artifacts are always uploaded (`if: always()`) for auditability.
+
+## Experiment Tracking Methodology
+
+Tracking backend and artifacts:
+
+- Tracking URI: `sqlite:///mlflow.db`
+- Artifact store: local `mlruns/`
+- Default registered model name: `iris-classifier`
+
+Each training run logs:
+
+- Parameters: `n_estimators`, `max_depth`, `random_state`
+- Metrics: `accuracy`, `f1_score`, `training_time_seconds`
+- Model artifact at `artifact_path=model`
+- Metadata written to `metrics.json` including `run_id`, tracking URI, and experiment name
+
+Recommended experiment naming:
+
+- CI runs: `milestone3-ci`
+- Airflow runs: `milestone3-airflow` or a custom `dag_run.conf.experiment_name`
+- Local ad-hoc runs: purpose-specific names (for reproducibility and comparison)
+
+## Setup and Execution Instructions
+
+### 1) Local setup
 
 ```bash
 cd milestone3
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
-python train.py --metrics-file metrics.json --tracking-uri sqlite:///mlflow.db
-python model_validation.py --metrics-file metrics.json --min-accuracy 0.90 --min-f1 0.85
-python register_model.py --metrics-file metrics.json --tracking-uri sqlite:///mlflow.db --model-name iris-classifier
 ```
 
-If you upgraded MLflow from an older setup and hit migration errors, recreate the tracking DB:
+### 2) Run pipeline locally (script-by-script)
 
 ```bash
-mv mlflow.db mlflow.db.bak
+python train.py \
+  --metrics-file metrics.json \
+  --tracking-uri sqlite:///mlflow.db
+
+python model_validation.py \
+  --metrics-file metrics.json \
+  --report-file validation_report.json \
+  --min-accuracy 0.90 \
+  --min-f1 0.85
+
+python register_model.py \
+  --metrics-file metrics.json \
+  --tracking-uri sqlite:///mlflow.db \
+  --model-name iris-classifier \
+  --artifact-path model
 ```
 
-## Airflow usage
+### 3) Run with Airflow (Docker)
 
-If you run Airflow from Docker, make sure `milestone3` is mounted and set:
+In `airflow-local/`:
+
+```bash
+docker compose up airflow-init
+docker compose up -d
+```
+
+Make sure the Airflow container can access this project and set:
 
 ```bash
 export MILESTONE3_DIR=/path/to/milestone3
 ```
 
-Then trigger DAG `milestone3_train_pipeline`.
+Trigger DAG: `milestone3_train_pipeline`
 
-To tune parameters from Airflow UI only:
-
-1. Open Airflow UI -> `DAGs` -> `milestone3_train_pipeline` -> `Trigger DAG`.
-2. Paste JSON config in `Run configuration`.
-3. Trigger run.
-
-Example config:
+Optional `dag_run.conf` example:
 
 ```json
 {
@@ -75,7 +135,7 @@ Example config:
 }
 ```
 
-Supported keys in `dag_run.conf`:
+Supported `dag_run.conf` keys:
 
 - `n_estimators` (int, default `100`)
 - `max_depth` (int, default `5`)
@@ -84,30 +144,30 @@ Supported keys in `dag_run.conf`:
 - `min_f1` (float, default `0.85`)
 - `experiment_name` (string, default `milestone3-airflow`)
 
-## Notes
+### 4) View experiments in MLflow UI
 
-- This workflow uses threshold-based gating: validation failure returns exit code `1`, so registration does not run.
-- MLflow artifacts and tracking files are generated under this folder (`mlflow.db`, `mlruns/`).
-- GitHub only auto-detects workflow files in repository root `.github/workflows/`; this file is placed under `milestone3/.github/` to match the requested structure.
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
+```
 
+### 5) Optional: initialize/push repository
 
-### 
-
-In airflow-local
-
-docker compose up airflow-init
-
-docker compose up -d
-
-In milestone3
+```bash
 git init
 git branch -M main
-
 git add .
 git commit -m "Initial commit: milestone3 mlops pipeline"
-
 git remote add origin https://github.com/ZifengC/Milestone3.git
 git push -u origin main
+```
 
+## Notes
 
-mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
+- If MLflow schema migration errors occur after upgrades, back up and recreate DB:
+
+```bash
+mv mlflow.db mlflow.db.bak
+```
+
+- MLflow state files are local to this repo (`mlflow.db`, `mlruns/`).
+- GitHub auto-detects workflow files from repository-root `.github/workflows/`.
