@@ -80,3 +80,6 @@ git commit -m "Initial commit: milestone3 mlops pipeline"
 
 git remote add origin https://github.com/ZifengC/Milestone3.git
 git push -u origin main
+
+
+mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001

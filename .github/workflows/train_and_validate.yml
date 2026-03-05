@@ -3,10 +3,10 @@ name: Train and Validate Model
 on:
   push:
     paths:
-      - 'milestone3/**'
+      - '**'
   pull_request:
     paths:
-      - 'milestone3/**'
+      - '**'
 
 jobs:
   train-and-validate:
@@ -23,10 +23,9 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r milestone3/requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Train model
-        working-directory: milestone3
         run: |
           python train.py \
             --metrics-file metrics.json \
@@ -34,7 +33,6 @@ jobs:
             --experiment-name milestone3-ci
 
       - name: Validate model thresholds
-        working-directory: milestone3
         run: |
           python model_validation.py \
             --metrics-file metrics.json \
@@ -43,7 +41,6 @@ jobs:
             --min-f1 0.85
 
       - name: Register model
-        working-directory: milestone3
         run: |
           python register_model.py \
             --metrics-file metrics.json \
@@ -57,7 +54,7 @@ jobs:
         with:
           name: milestone3-artifacts
           path: |
-            milestone3/metrics.json
-            milestone3/validation_report.json
-            milestone3/mlflow.db
-            milestone3/mlruns/
+            metrics.json
+            validation_report.json
+            mlflow.db
+            mlruns/
