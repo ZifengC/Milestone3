@@ -2,6 +2,7 @@
 """Airflow DAG: train, validate, then register in MLflow Model Registry."""
 
 import os
+import json
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -10,18 +11,47 @@ from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-DEFAULT_ARGS = {
-    "owner": "mlops",
-    "depends_on_past": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=1),
-}
-
 PROJECT_DIR = Path(os.getenv("MILESTONE3_DIR", Path(__file__).resolve().parents[1]))
 METRICS_FILE = PROJECT_DIR / "metrics.json"
 REPORT_FILE = PROJECT_DIR / "validation_report.json"
 TRACKING_URI = f"sqlite:///{PROJECT_DIR / 'mlflow.db'}"
 REGISTERED_MODEL_NAME = "iris-classifier"
+FAILURE_LOG = PROJECT_DIR / "failure_events.log"
+
+
+def on_task_failure(context: dict) -> None:
+    """Record failure context and clean stale outputs after train failures."""
+    dag = context.get("dag")
+    task = context.get("task_instance")
+    dag_run = context.get("dag_run")
+    exception = context.get("exception")
+
+    payload = {
+        "timestamp_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "dag_id": dag.dag_id if dag else None,
+        "task_id": task.task_id if task else None,
+        "run_id": dag_run.run_id if dag_run else None,
+        "exception": str(exception) if exception else None,
+    }
+
+    FAILURE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with FAILURE_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
+
+    # If training fails, remove stale artifacts to avoid confusing later steps.
+    if task and task.task_id == "train_model":
+        for path in (METRICS_FILE, REPORT_FILE):
+            if path.exists():
+                path.unlink()
+
+
+DEFAULT_ARGS = {
+    "owner": "mlops",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=1),
+    "on_failure_callback": on_task_failure,
+}
 
 
 def _conf_value(conf: dict, key: str, default, cast):

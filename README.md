@@ -29,6 +29,12 @@ milestone3/
 - `max_active_runs=1` prevents overlapping runs of this DAG and reduces race conditions on shared outputs.
 - Run configuration (`dag_run.conf`) is explicitly parsed and cast with defaults, so missing/invalid values fall back safely.
 
+Retry and failure-handling configuration:
+
+- `retry_delay`: `1 minute` between retry attempts.
+- `max_retries`: `1` (Airflow field name: `retries`).
+- `on_failure_callback`: `on_task_failure` writes failure context to `failure_events.log`; if `train_model` fails, stale `metrics.json` and `validation_report.json` are removed.
+
 Lineage chain:
 
 1. `train.py` creates MLflow run and writes `run_id` to `metrics.json`.
