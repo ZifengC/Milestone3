@@ -1,0 +1,63 @@
+name: Train and Validate Model
+
+on:
+  push:
+    paths:
+      - 'milestone3/**'
+  pull_request:
+    paths:
+      - 'milestone3/**'
+
+jobs:
+  train-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r milestone3/requirements.txt
+
+      - name: Train model
+        working-directory: milestone3
+        run: |
+          python train.py \
+            --metrics-file metrics.json \
+            --tracking-uri sqlite:///mlflow.db \
+            --experiment-name milestone3-ci
+
+      - name: Validate model thresholds
+        working-directory: milestone3
+        run: |
+          python model_validation.py \
+            --metrics-file metrics.json \
+            --report-file validation_report.json \
+            --min-accuracy 0.90 \
+            --min-f1 0.85
+
+      - name: Register model
+        working-directory: milestone3
+        run: |
+          python register_model.py \
+            --metrics-file metrics.json \
+            --tracking-uri sqlite:///mlflow.db \
+            --model-name iris-classifier \
+            --artifact-path model
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: milestone3-artifacts
+          path: |
+            milestone3/metrics.json
+            milestone3/validation_report.json
+            milestone3/mlflow.db
+            milestone3/mlruns/

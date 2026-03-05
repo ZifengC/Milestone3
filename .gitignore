@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+*/venv/
+venv/
+airflow-local/logs/
+mlflow.db
+mlruns/
+metrics.json
+validation_report*.json
