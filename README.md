@@ -64,5 +64,19 @@ Then trigger DAG `milestone3_train_pipeline`.
 
 
 ### 
+
+In airflow-local
+
+docker compose up airflow-init
+
+docker compose up -d
+
+In milestone3
 git init
 git branch -M main
+
+git add .
+git commit -m "Initial commit: milestone3 mlops pipeline"
+
+git remote add origin https://github.com/ZifengC/Milestone3.git
+git push -u origin main
