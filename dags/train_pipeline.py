@@ -24,7 +24,27 @@ TRACKING_URI = f"sqlite:///{PROJECT_DIR / 'mlflow.db'}"
 REGISTERED_MODEL_NAME = "iris-classifier"
 
 
-def run_train() -> None:
+def _conf_value(conf: dict, key: str, default, cast):
+    """Read a value from dag_run.conf with best-effort casting."""
+    value = conf.get(key, default)
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _dag_conf(context: dict) -> dict:
+    dag_run = context.get("dag_run")
+    return dag_run.conf or {} if dag_run else {}
+
+
+def run_train(**context) -> None:
+    conf = _dag_conf(context)
+    n_estimators = _conf_value(conf, "n_estimators", 100, int)
+    max_depth = _conf_value(conf, "max_depth", 5, int)
+    random_state = _conf_value(conf, "random_state", 42, int)
+    experiment_name = _conf_value(conf, "experiment_name", "milestone3-airflow", str)
+
     subprocess.run(
         [
             sys.executable,
@@ -34,14 +54,24 @@ def run_train() -> None:
             "--tracking-uri",
             TRACKING_URI,
             "--experiment-name",
-            "milestone3-airflow",
+            experiment_name,
+            "--n-estimators",
+            str(n_estimators),
+            "--max-depth",
+            str(max_depth),
+            "--random-state",
+            str(random_state),
         ],
         check=True,
         cwd=PROJECT_DIR,
     )
 
 
-def run_validation() -> None:
+def run_validation(**context) -> None:
+    conf = _dag_conf(context)
+    min_accuracy = _conf_value(conf, "min_accuracy", 0.90, float)
+    min_f1 = _conf_value(conf, "min_f1", 0.85, float)
+
     subprocess.run(
         [
             sys.executable,
@@ -51,9 +81,9 @@ def run_validation() -> None:
             "--report-file",
             str(REPORT_FILE),
             "--min-accuracy",
-            "0.90",
+            str(min_accuracy),
             "--min-f1",
-            "0.85",
+            str(min_f1),
         ],
         check=True,
         cwd=PROJECT_DIR,

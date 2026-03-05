@@ -56,6 +56,34 @@ export MILESTONE3_DIR=/path/to/milestone3
 
 Then trigger DAG `milestone3_train_pipeline`.
 
+To tune parameters from Airflow UI only:
+
+1. Open Airflow UI -> `DAGs` -> `milestone3_train_pipeline` -> `Trigger DAG`.
+2. Paste JSON config in `Run configuration`.
+3. Trigger run.
+
+Example config:
+
+```json
+{
+  "n_estimators": 200,
+  "max_depth": 8,
+  "random_state": 123,
+  "min_accuracy": 0.93,
+  "min_f1": 0.90,
+  "experiment_name": "milestone3-airflow-ui"
+}
+```
+
+Supported keys in `dag_run.conf`:
+
+- `n_estimators` (int, default `100`)
+- `max_depth` (int, default `5`)
+- `random_state` (int, default `42`)
+- `min_accuracy` (float, default `0.90`)
+- `min_f1` (float, default `0.85`)
+- `experiment_name` (string, default `milestone3-airflow`)
+
 ## Notes
 
 - This workflow uses threshold-based gating: validation failure returns exit code `1`, so registration does not run.
