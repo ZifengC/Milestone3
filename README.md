@@ -167,6 +167,11 @@ git remote add origin https://github.com/ZifengC/Milestone3.git
 git push -u origin main
 ```
 
+## MLflow Tracking Evidence
+
+![MLflow Experiment Runs](evidence/pic1.png)
+![MLflow Model Registry](evidence/pic2.png)
+
 ## Notes
 
 - If MLflow schema migration errors occur after upgrades, back up and recreate DB:
